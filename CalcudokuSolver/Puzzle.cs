@@ -82,7 +82,7 @@ namespace CalcudokuSolver
             };
 
             // For commutative operations we don't need to check all permutations
-            // e.g. 1x2x3 = 3x1x2 but for non commutative we do, e.g. 2/3 != 3/2
+            // e.g. 1x2x3 = 3x1x2 but for non commutative we have, e.g. 2/3 != 3/2
             var perm1 = isCommutative
                 ? new[] { Enumerable.Range(0, clue.Cells.Length) }
                 : Enumerable.Range(0, clue.Cells.Length).Permute();
@@ -173,6 +173,7 @@ namespace CalcudokuSolver
                 puzzleSolved = true;
                 for (int clueIndex = 0; clueIndex < clues.Length; clueIndex++)
                 {
+                    puzzleSolved &= state.ClueState[clueIndex].Solved;
                     if (state.ClueState[clueIndex].Dirty)
                     {
                         var clue = clues[clueIndex];
@@ -305,52 +306,53 @@ namespace CalcudokuSolver
 
                     }
                 }
-                progress?.Report(state);
             }
             while (puzzleDirty);
 
-            if (!puzzleSolved)
-            {
-                var guesses = clues.SelectMany(it => it.Cells, (a, b) => (
-                        clue: a,
-                        cell: b,
-                        clueState: state.ClueState[a.Index],
-                        count: state.GridState[b.X, b.Y].GetBitCount())
-                    )
-                    .Where(it => !it.clueState.Solved && it.count > 1)
-                    .OrderBy(it => it.count)
-                    .ToList();
+            progress?.Report(state);
 
-                foreach (var guess in guesses)
+            if (puzzleSolved)
+                return true;
+
+            var guesses = clues.SelectMany(it => it.Cells, (a, b) => (
+                    clue: a,
+                    cell: b,
+                    clueState: state.ClueState[a.Index],
+                    count: state.GridState[b.X, b.Y].GetBitCount())
+                )
+                .Where(it => !it.clueState.Solved && it.count > 1)
+                .OrderBy(it => it.count)
+                .ToList();
+
+            foreach (var guess in guesses.Take(1))
+            {
+                var possibleValues = state.GridState[guess.cell.X, guess.cell.Y].GetBitsSet();
+                foreach (var valueToTry in possibleValues)
                 {
-                    var possibleValues = state.GridState[guess.cell.X, guess.cell.Y].GetBitsSet();
-                    foreach (var valueToClear in possibleValues)
+                    faulted = false;
+                    var newState = new PuzzleState(state);
+                    newState.GridState[guess.cell.X, guess.cell.Y] = 1 << (valueToTry - 1);
+                    puzzleDirty |= CheckColumn(newState, guess.cell.X, ref faulted);
+                    puzzleDirty |= CheckRow(newState, guess.cell.Y, ref faulted);
+                    if (faulted)
                     {
-                        faulted = false;
-                        var newState = new PuzzleState(state);
-                        newState.GridState[guess.cell.X, guess.cell.Y] = 1 << (valueToClear - 1);
-                        puzzleDirty |= CheckColumn(newState, guess.cell.X, ref faulted);
-                        puzzleDirty |= CheckRow(newState, guess.cell.Y, ref faulted);
-                        if (faulted)
-                        {
-                            // Should never happen, something is wrong in the puzzle logic
-                            return false;
-                        }
-                        if (Solve(iter + 1, newState, progress, cancellation))
-                        {
-                            return true;
-                        }
+                        // Should never happen, something is wrong in the puzzle logic
+                        return false;
+                    }
+                    if (Solve(iter + 1, newState, progress, cancellation))
+                    {
+                        progress?.Report(newState);
+                        return true;
                     }
                 }
             }
-            return true;
+            return false;
         }
 
-        public Task<bool> Solve(IProgress<PuzzleState> progress = null, CancellationToken cancellation = default)
+        public bool Solve(IProgress<PuzzleState> progress = null, CancellationToken cancellation = default)
         {
             var state = new PuzzleState(size, clues.Length);
-            var correct = Solve(0, state, progress, cancellation);
-            return Task.FromResult(correct);
+            return Solve(0, state, progress, cancellation);
         }
 
 
@@ -377,6 +379,7 @@ namespace CalcudokuSolver
             for (int x = 0; x < Size; x++)
                 for (int y = 0; y < Size; y++)
                 {
+                    g.FillRectangle(SystemBrushes.ButtonFace, x * 32 + 1, y * 32 + 1, 30, 30);
                     var cell = grid[x, y];
                     if (x == 0 || cell.Clue != grid[x - 1, y].Clue)
                         g.DrawLine(thickPen, x * 32, y * 32, x * 32, (y + 1) * 32);
@@ -391,11 +394,7 @@ namespace CalcudokuSolver
                         var size = g.MeasureString(cell.Clue.Formula, clueFont);
                         g.DrawString(cell.Clue.Formula, size.Width < 30f ? clueFont : smallerClueFont, Brushes.Black, x * 32 + 1f, y * 32 + 1f);
                     }
-                }
-            if (state != null)
-            {
-                for (int x = 0; x < Size; x++)
-                    for (int y = 0; y < Size; y++)
+                    if (state != null)
                     {
                         var values = state.GridState[x, y].GetBitsSet().ToArray();
                         string valueTxt = values.Length < 5 ? String.Join("|", values) : "...";
@@ -406,7 +405,7 @@ namespace CalcudokuSolver
                             y * 32 + 16 - size.Height / 2
                         );
                     }
-            }
+                }
         }
     }
 }

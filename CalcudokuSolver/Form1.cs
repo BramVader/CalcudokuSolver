@@ -215,9 +215,9 @@ namespace CalcudokuSolver
         {
             this.currentState = state;
             if (InvokeRequired)
-                Invoke(new Action(() => Invalidate()));
+                Invoke(new Action(() => Redraw()));
             else
-                Invalidate();
+                Redraw();
         }
 
         private async void Form1_Activated(object sender, EventArgs e)
@@ -236,7 +236,8 @@ namespace CalcudokuSolver
 
                 try
                 {
-                    await puzzle.Solve(progressIndicator, cts.Token);
+                    var solved = await Task.Run(() => puzzle.Solve(progressIndicator, cts.Token));
+                    MessageBox.Show($"The puzzle is{(solved ? "" : " not")} solved");
                 }
                 catch (OperationCanceledException)
                 {
@@ -246,6 +247,12 @@ namespace CalcudokuSolver
 
                 if (!cancelled) return;
             }
+        }
+
+        private void Redraw()
+        {
+            using Graphics g = Graphics.FromHwnd(Handle);
+            puzzle.Draw(g, currentState);
         }
 
         private void Form1_Paint(object sender, PaintEventArgs e)
